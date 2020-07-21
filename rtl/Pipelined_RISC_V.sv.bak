@@ -1,0 +1,728 @@
+//===================================================================
+// Design name:		32 bit low power RISC-V processor
+// Project name:	A 32-bit pipeline RISC-V cpu using SV
+// Author:			hungbk99
+//===================================================================
+
+`include"RVS192_user_define.h"
+import 	RVS192_package::*;
+import	RVS192_user_parameters::*;
+module Pipelined_RISC_V(
+	clk,
+	clk_l1,
+	clk_l2,
+	mem_clk,
+	rst_n);
+	
+//=============================Parameters=============================
+	parameter	DATA_LENGTH = 32;
+	parameter	INST_LENGTH = 32;
+	parameter	PC_LENGTH = 32;
+	parameter  	CONTROL_DATA_LENGTH = 23;
+	parameter	CONTROL_ADDR_LENGTH = 9;
+	
+//=============================Interfaces=============================
+//Inputs
+	input	clk;
+	input 	clk_l1;
+	input 	clk_l2;
+	input 	mem_clk;
+	input 	rst_n;
+
+//Outputs	
+
+//====================================================================
+//						    Pipelined RISC-V
+//====================================================================	
+`ifdef SIMULATE
+	include "BHT.sv";
+	include "Next_PC_Logic.sv";	
+	include "BTB.sv";	
+	include "Add4.sv";	
+	include "PC.sv";	
+	include"mux_3_1.sv";	
+	include "mux_2_1.sv";	
+	include "ImmGen.sv";	
+	include "Controller.sv";	
+	include "mux_2_1_CT.sv";	
+	include "Register_File.sv";	
+	include "mux_4_1.sv";	
+	include "ALU.sv";
+	include "Branch_Compare.sv";
+	include "Forwarding_Unit.sv";
+	include "Branch_Check.sv";
+	include "DataGen.sv";	
+	include "Pipeline_Register0.sv";	
+	include "Pipeline_Register1.sv";	
+	include "Pipeline_Register2.sv";	
+	include "DL1_Cache.sv";
+	include "IL1_Cache.sv";
+	include "L2_Cache.sv";
+	include "Memory.sv"; 
+`endif
+//================================CACHE===============================
+//====================================================================
+	parameter	L2_TAG_LENGTH = DATA_LENGTH-BYTE_OFFSET-WORD_OFFSET-$clog2(L2_CACHE_LINE);
+
+//	CPU
+	logic												ICC_halt;
+	logic 	[INST_LENGTH-1:0]							inst_fetch;
+	logic 	[PC_LENGTH-1:0]								pc;
+//	HANDSHAKE			
+//	System	
+	logic 												clk_l1;
+	logic 												rst_n;
+	
+//	CPU
+	logic												DCC_halt;
+	logic 	[DATA_LENGTH-1:0]							data_read;
+	logic 	[DATA_LENGTH-1:0]							data_write;
+	logic	[DATA_LENGTH-1:0]							alu_out;
+	logic												cpu_read;
+	logic 												cpu_write;	
+//	Dirty handshake		
+//	Replace handshake	
+	logic												inst_replace_req,
+														data_replace_req;	
+	logic 	[DATA_LENGTH-BYTE_OFFSET-WORD_OFFSET-1:0]	dl1_dirty_addr;													
+//	 	logic 	[DATA_LENGTH-1:0]								update_addr;
+//	logic 												update_req;
+	logic 												update_ack;
+//	Write Buffer
+	logic												L2_full_flag;
+//	 	logic 	[DATA_LENGTH-1:0]		wb_addr;	
+//	System	
+
+//	Il1 Cache
+	cache_update_type									IL2_out;
+//	output 	logic										inst_update_ack;
+	logic 												inst_update_req;
+	logic 	[PC_LENGTH-1:0]								pc_up;
+	logic 												inst_replace_il1_ack,
+														data_replace_il1_ack;			
+	logic												L2_inst_il1_ack,
+														L2_inst_dl1_ack,
+														L2_data_il1_ack,
+														L2_data_dl1_ack;
+//	DL1 Cache
+	cache_update_type									DL2_out;
+//	output 	logic										data_update_ack;
+	logic 												data_update_req;
+	logic 	[PC_LENGTH-1:0]								alu_out_up;	
+	logic	[DATA_LENGTH-1:0]							dirty_data1;
+	logic	[DATA_LENGTH-1:0]							dirty_data2;
+	logic 	[DATA_LENGTH-1:0]							dirty_addr;				// DL1 chi gui tag va index do do phai them bit 0 truoc khi su dung
+	logic 	 											dirty_req;
+	logic												dirty_ack;
+	logic 	 											dirty_replace;	
+	logic 	[2*DATA_LENGTH-BYTE_OFFSET-1:0]				wb_data;	
+	logic		 										wb_req;
+	logic 												wb_ack;	
+	logic 												full_flag;
+	logic 												inst_replace_dl1_ack,
+														data_replace_dl1_ack;		
+//	To both IL1 and DL1
+	logic												inst_replace_check,
+														data_replace_check;
+	logic 	[L2_TAG_LENGTH+$clog2(L2_CACHE_LINE)-1:0]	inst_addr_replace,
+														data_addr_replace;																
+//	Mem
+//	System
+	logic 												clk_l2;
+	
+	logic 	[INST_LENGTH-1:0]							inst_mem_read;
+	logic 	[DATA_LENGTH-1:0]							data_mem_read;
+	logic												inst_res,		//	Use for synchoronous
+														data_res;
+	logic	[DATA_LENGTH-1:0]							data_mem_write,
+														data_addr;
+	logic 	[PC_LENGTH-1:0]								inst_addr;
+	logic 												inst_read_req,
+														data_read_req,
+														data_write_req,
+														mem_clk;
+	logic 	pc_halt,
+			cache_halt_0,
+			cache_halt_1,
+			cache_halt_2,
+			cache_halt_3,
+			cache_halt_4;
+
+	assign 	pc_halt = DCC_halt || ICC_halt;
+	assign 	cache_halt_0 = DCC_halt || ICC_halt;
+	assign 	cache_halt_1 = DCC_halt || ICC_halt;
+
+	assign 	cache_halt_3 = DCC_halt;
+	assign 	cache_halt_4 = DCC_halt;
+//==============================Pre-Fetch=============================
+//====================================================================
+
+	logic	[PC_LENGTH-1:0] pc_mem;
+	logic	actual_mem;
+	logic	update_mem;
+	logic 	condition_mem;
+	logic	[1:0] choice_update_mem;
+	logic	[1:0] predict_check_pre_fet;
+	logic 	predicted_bit;
+	logic	take_branch;
+	logic	wrong_mem;
+	logic	hit_miss;
+	logic	[PC_LENGTH-1:0] target_mem;
+	logic 	[PC_LENGTH-1:0] pc_plus_4_pre_fet;
+	logic 	[PC_LENGTH-1:0] pc_in;
+	logic	[PC_LENGTH-1:0] pc_out;
+	logic	[1:0] pc_sel;
+	logic	[PC_LENGTH-1:0] pc_plus_4_fetch;
+	logic	[PC_LENGTH-1:0] target_predict;
+	logic	[PC_LENGTH-1:0] actual_pc_mem;
+	logic 	halt;
+	logic 	[11:0] GBHR;
+	logic 	[11:0] GBHR_mem;
+	
+
+	BHT		BHT_U(
+		predict_check_pre_fet,
+		predicted_bit,
+		GBHR,
+		clk_l1,
+		rst_n,
+		pc_out,
+		actual_mem,
+		pc_mem,
+		update_mem,
+		condition_mem,
+		GBHR_mem,
+		choice_update_mem);	
+
+
+	Next_PC_Logic Next_PC_Logic_U(
+		rst_n,
+		wrong_mem,
+		hit_miss,
+		predicted_bit,
+		take_branch,
+		pc_sel);
+	
+
+	BTB BTB_U( 
+		clk_l1,
+		rst_n,	
+		pc_out,
+		pc_mem,
+		target_mem,
+		update_mem,
+		hit_miss,
+		target_predict);
+	
+
+		PC_plus_4 PC4_pre_fet_U(
+		pc_out,
+		pc_plus_4_pre_fet);
+	
+
+	PC	 PC_U(
+		clk_l1,
+		rst_n,
+		pc_in,
+		halt,
+		pc_halt,
+		pc_out);
+	
+
+	mux_3_1 mux_PC(
+		actual_pc_mem,
+		target_predict,
+		pc_plus_4_pre_fet,
+		pc_sel,
+		pc_in);
+
+//=============================Fetch Stage============================
+//====================================================================   
+
+	logic	[PC_LENGTH-1:0] pc_fetch;
+	logic	[1:0] predict_check_fetch;
+	logic	take_fetch;
+//	logic	[INST_LENGTH-1:0] inst_fetch;
+	logic	[INST_LENGTH-1:0] inst;
+	logic	[INST_LENGTH-1:0] nop;
+	logic 	flush_mem;
+	logic 	wrong_ex;
+	logic 	[11:0] GBHR_fet;
+	
+	assign  flush_mem = wrong_mem;		
+//	assign 	nop = 32'b0;
+	assign 	nop = 32'h00007033;
+	
+/*
+	include "IMEM.sv";
+	IMEM IMEM_U(
+		rst_n,
+		clk_l1,
+		pc_fetch,
+		inst);
+*/
+	IL1_Cache	IL1_DUT
+	(
+	.*,
+	.pc(pc_fetch),
+	.inst_fetch(inst),
+	.inst_replace_req(inst_replace_check),
+	.data_replace_req(data_replace_check)	
+	);
+
+	mux_2_1 mux_fetch(
+		inst,
+		nop,
+		flush_mem,
+		inst_fetch);				
+
+//============================Decode Stage============================	
+//====================================================================
+
+//	Register File
+	logic 	[4:0] rd_wb;
+	logic 	[4:0] rs1_dec;
+	logic	[4:0] rs2_dec;
+	logic	[4:0] rd_dec;
+	logic    reg_wen_wb;
+	logic 	[DATA_LENGTH-1:0] rs1_out;
+	logic 	[DATA_LENGTH-1:0] rs2_out;
+	logic 	[DATA_LENGTH-1:0] data_wb;
+	
+//	Controller	
+	logic	[INST_LENGTH-1:0] inst_dec;
+	logic 	[CONTROL_DATA_LENGTH-1:0] data_control;
+	logic	[CONTROL_DATA_LENGTH-1:0] control_signals;	
+	logic    [19:0] control_signals_dec;
+	logic 	[CONTROL_DATA_LENGTH-1:0] data_ct_flush;
+
+//	Imm Gen
+	logic 	[24:0] imm_in;
+	logic 	[DATA_LENGTH-1:0] imm_dec;
+	logic 	[2:0] imm_sel;
+	logic 	[CONTROL_ADDR_LENGTH-1:0] controller_addr;
+	
+	assign  rs1_dec = inst_dec[19:15];
+	assign  rs2_dec = inst_dec[24:20];
+	assign 	rd_dec = inst_dec[11:7];
+	assign  offset_in = inst_dec[31:7];
+	assign	data_ct_flush = 23'b0;
+	assign 	imm_in = inst_dec[31:7];
+	assign 	imm_sel = control_signals[22:20];
+	assign 	controller_addr = {inst_dec[30], inst_dec[14:12], inst_dec[6:2]};
+	assign  control_signals_dec = control_signals[19:0];
+
+//	Other connections
+	logic 	[1:0]	predict_check_dec;
+	logic	take_dec;
+	logic 	[PC_LENGTH-1:0] pc_dec;
+	logic 	flush_dec;
+	logic 	flush_ex;	
+	logic 	[11:0] GBHR_dec;		
+		
+	assign 	flush_dec = flush_ex || flush_mem;
+	assign  flush_ex = wrong_ex;
+	
+
+	Imm_Gen Imm_Gen_U(
+		rst_n,
+		imm_in,
+		imm_sel,
+		imm_dec);
+		
+
+	Controller Controller_U(	
+		rst_n,
+		controller_addr,
+		data_control);		
+	
+
+	mux_2_1_CT mux_dec(
+		data_control,
+		data_ct_flush,
+		flush_dec,
+		control_signals);
+
+
+	Register_File	Register_File_U(
+		clk_l1,
+		rs1_dec,
+		rs2_dec,
+		rd_wb,
+		reg_wen_wb,
+		data_wb,
+		rs1_out,
+		rs2_out);
+		
+//============================Execute Stage============================	
+//=====================================================================	
+
+//	ALU
+	logic 	[DATA_LENGTH-1:0] alu_mem;
+	logic	[PC_LENGTH-1:0] pc_ex;
+	logic 	[DATA_LENGTH-1:0] imm_ex;
+	logic 	[DATA_LENGTH-1:0] rs1_out_ex;
+	logic 	[DATA_LENGTH-1:0] rs2_out_ex;
+	logic 	[DATA_LENGTH-1:0] alu_in1;
+	logic 	[DATA_LENGTH-1:0] alu_in2;
+	logic 	[DATA_LENGTH-1:0] alu_ex;
+	logic 	[3:0] alu_op;	
+	logic 	[1:0] asel_fw;
+	logic 	[1:0] bsel_fw;
+	
+//	mem fix
+	logic 	[DATA_LENGTH-1:0] rs2_out_ex_fix;
+	logic 	mem_fix;
+
+//	Branch Comp
+	logic 	[1:0] br1_fw;
+	logic 	[1:0] br2_fw;	
+	logic	br_un;
+	logic	br_lt;
+	logic	br_eq;
+	logic 	[DATA_LENGTH-1:0] out1;
+	logic 	[DATA_LENGTH-1:0] out2;
+	
+//	Branch Check
+	logic	condition_ex;
+	logic	branch_capture;
+	logic	[1:0] branch_kind;	
+	logic	update_ex;
+	logic	actual_ex;
+	logic	[1:0] choice_update_ex;
+	logic	take_ex;
+	logic	[1:0] predict_check_ex;
+
+//	Forwarding Unit
+	logic 	asel;
+	logic	bsel;
+	logic 	[4:0] rs1_ex;
+	logic 	[4:0] rs2_ex;
+	logic 	[4:0] rd_mem;
+	logic 	reg_wen_mem;
+	logic 	[1:0] ls_sel_ex;
+	logic	[1:0] wb_mem;
+	logic 	mem_wen_ex;
+
+//	Other connections
+	logic 	[19:0] control_signals_ex;
+	logic 	[4:0] rd_ex;
+	logic 	reg_wen_ex;
+	logic 	[2:0] data_type_ex;
+	logic 	[1:0] wb_ex;
+ 	logic 	[11:0] GBHR_ex;
+	logic 	cpu_read_ex;
+	logic 	cpu_write_ex;
+ 
+	assign 	update_ex = branch_capture;
+	assign  reg_wen_ex = control_signals_ex[17];
+	assign 	br_un = control_signals_ex[16];
+	assign 	bsel = control_signals_ex[15];
+	assign 	asel = control_signals_ex[14];
+	assign 	alu_op = control_signals_ex[13:10];
+	assign  mem_wen_ex = control_signals_ex[9]; 
+	assign 	data_type_ex = control_signals_ex[8:6];
+	assign 	wb_ex = control_signals_ex[5:4];	
+	assign 	condition_ex = control_signals_ex[3];	
+	assign	branch_capture = control_signals_ex[2];
+	assign 	branch_kind = control_signals_ex[1:0];
+	assign 	cpu_write_ex = control_signals_ex[19];
+	assign 	cpu_read_ex = control_signals_ex[18];
+
+	mux_4_1 mux_A(
+		rs1_out_ex,
+		pc_ex,
+		alu_mem,
+		data_wb,
+		asel_fw,
+		alu_in1);	
+	
+
+	mux_4_1 mux_B(
+		rs2_out_ex,
+		imm_ex,
+		alu_mem,
+		data_wb,
+		bsel_fw,
+		alu_in2);	
+
+
+	ALU ALU_U(
+		rst_n,
+		alu_in1,
+		alu_in2,
+		alu_op,
+		alu_ex);
+	
+	mux_2_1	mux_mem_fix(
+		rs2_out_ex,
+		data_wb,
+		mem_fix,
+		rs2_out_ex_fix);
+
+	mux_3_1	BR_mux1(
+		rs1_out_ex,
+		alu_mem,
+		data_wb,
+		br1_fw,
+		out1);
+
+	mux_3_1	BR_mux2(
+		rs2_out_ex,
+		alu_mem,
+		data_wb,
+		br2_fw,
+		out2);
+		
+	
+	Branch_Compare	Branch_Compare_U(
+		rst_n,
+		br_un,
+		out1,
+		out2,
+		br_lt,
+		br_eq);
+		
+
+	Forwarding_Unit Forwarding_Unit_U(
+		rst_n,
+		asel,
+		bsel,
+		rs1_ex,
+		rs2_ex,
+		mem_wen_ex,
+		wb_mem,
+		rd_mem,
+		rd_wb,
+		reg_wen_mem,
+		reg_wen_wb,
+		asel_fw,
+		bsel_fw,
+		br1_fw,
+		br2_fw,	
+		mem_fix,
+		halt,
+		ls_sel_ex);
+
+
+	Branch_Check Branch_Check_U(
+		rst_n,
+		take_ex,
+		br_lt,
+		br_eq,
+		predict_check_ex,
+		branch_capture,
+		branch_kind,
+		condition_ex,
+		actual_ex,
+		wrong_ex,
+		choice_update_ex);
+
+//=============================Mem Stage==============================
+//====================================================================
+
+//	DMEM
+	logic 	[DATA_LENGTH-1:0] data_r;
+	logic 	[DATA_LENGTH-1:0] data_w;
+	logic 	mem_wen_mem;
+
+//	DATA GEN	
+	logic 	[DATA_LENGTH-1:0] mem_mem;
+	logic 	[2:0] data_type;
+	logic 	[DATA_LENGTH-1:0] data_in;
+	
+//	DATA MUX
+	logic 	[DATA_LENGTH-1:0] rs2_out_mem;
+	logic 	[1:0]	ls_sel_mem;
+
+//	PC + 4
+	logic 	[PC_LENGTH-1:0] pc_plus_4_mem;
+
+//	logic 	cpu_write,
+//			cpu_read;
+
+	assign 	data_w = mem_mem;
+	assign 	target_mem = alu_mem;
+	
+	mux_2_1 mux_actual_PC(
+		pc_plus_4_mem,
+		target_mem,
+		actual_mem,
+		actual_pc_mem);
+	
+	PC_plus_4	PC4_mem_U(
+		pc_mem,
+		pc_plus_4_mem);
+
+/*		
+	include "DMEM.sv";
+	DMEM DMEM_U(
+		clk_l1,
+		alu_mem,
+		data_w,
+		mem_wen_mem,
+		data_r);
+*/
+	DL1_Cache	DL1_DUT
+	(
+	.data_write(data_w),
+	.alu_out(alu_mem),
+	.inst_replace_req(inst_replace_check),
+	.data_replace_req(data_replace_check),	
+	.L2_full_flag(full_flag),
+	.*
+	);
+	
+	mux_3_1	DMEM_mux(
+		data_read,
+		rs2_out_mem,
+		data_wb,
+		ls_sel_mem,
+		data_in);
+	
+
+	DataGen	DataGen_U(
+		rst_n,
+		data_type,
+		data_in,
+		mem_mem);
+		
+//=============================WB Stage============================	
+	logic 	[DATA_LENGTH-1:0] pc_plus_4_wb;
+	logic 	[1:0] wb_wb;
+	logic 	[DATA_LENGTH-1:0] mem_wb;
+	logic 	[DATA_LENGTH-1:0] alu_wb;
+	
+	mux_3_1 mux_WB(
+		mem_wb,
+		alu_wb,
+		pc_plus_4_wb,
+		wb_wb,
+		data_wb);
+
+//======================Register Between Stages====================		
+	logic 	[46:0] data_in_1_2;
+	logic 	[46:0] data_out_1_2;
+	
+	logic 	[87:0] data_in_2_3;
+	logic 	[87:0] data_out_2_3;
+	
+	logic 	[177:0] data_in_3_4;
+	logic 	[177:0] data_out_3_4;
+	
+	logic 	[129:0] data_in_4_5;
+	logic 	[129:0] data_out_4_5;
+	
+	logic 	[103:0] data_in_5_6;
+	logic 	[103:0] data_out_5_6;
+///*	
+	assign data_in_1_2 = {GBHR, predict_check_pre_fet, take_branch, pc_out};
+	assign {GBHR_fet, predict_check_fetch, take_fetch, pc_fetch} = data_out_1_2;
+	
+	assign data_in_2_3 = {GBHR_fet, predict_check_fetch, take_fetch, pc_fetch, inst_fetch};
+	assign {GBHR_dec, predict_check_dec, take_dec, pc_dec, inst_dec} = data_out_2_3;
+	
+	assign data_in_3_4 = {GBHR_dec, predict_check_dec, take_dec, control_signals_dec, rs1_dec, rs2_dec, rd_dec, imm_dec, pc_dec, rs1_out, rs2_out};
+	assign {GBHR_ex, predict_check_ex, take_ex, control_signals_ex, rs1_ex, rs2_ex, rd_ex, imm_ex, pc_ex,  rs1_out_ex, rs2_out_ex} = data_out_3_4;
+		
+	assign 	data_in_4_5 = {GBHR_ex, condition_ex, update_ex, actual_ex, choice_update_ex, wrong_ex, ls_sel_ex, reg_wen_ex, mem_wen_ex, data_type_ex, wb_ex, rd_ex, pc_ex, rs2_out_ex_fix, alu_ex, cpu_write_ex, cpu_read_ex};
+	assign 	{GBHR_mem, condition_mem, update_mem, actual_mem, choice_update_mem, wrong_mem, ls_sel_mem, reg_wen_mem, mem_wen_mem, data_type, wb_mem,  rd_mem, pc_mem, rs2_out_mem, alu_mem, cpu_write, cpu_read} = data_out_4_5;
+	
+	assign 	data_in_5_6 = {reg_wen_mem, wb_mem, rd_mem, pc_plus_4_mem, alu_mem, mem_mem};
+	assign 	{reg_wen_wb, wb_wb, rd_wb, pc_plus_4_wb, alu_wb, mem_wb} = data_out_5_6;
+	
+
+	Pipeline_Register0 PrFet_Fet_R(
+		clk,
+		rst_n,
+		data_in_1_2,
+		halt,
+		cache_halt_0,
+		data_out_1_2);	
+	defparam PrFet_Fet_R.DATA_LENGTH = 47;
+	
+	Pipeline_Register0 Fet_Dec_R(
+		clk,
+		rst_n,
+		data_in_2_3,
+		halt,
+		cache_halt_1,
+		data_out_2_3);		
+	defparam Fet_Dec_R.DATA_LENGTH = 88;
+
+	assign 	cache_halt_2 = DCC_halt || halt;	
+	Pipeline_Register1 Dec_Ex_R(
+		clk,
+		rst_n,
+		data_in_3_4,
+		ICC_halt,
+		cache_halt_2,
+		data_out_3_4);
+	defparam Dec_Ex_R.DATA_LENGTH = 178;
+	
+
+	Pipeline_Register1 Ex_Mem_R(
+		clk,
+		rst_n,
+		data_in_4_5,
+		halt,
+		cache_halt_3,
+		data_out_4_5);	
+	defparam Ex_Mem_R.DATA_LENGTH = 130;
+	
+
+	Pipeline_Register2 Mem_WB_R(
+		clk,
+		rst_n,
+		data_in_5_6,
+		data_out_5_6,
+		cache_halt_4);
+	defparam Mem_WB_R.DATA_LENGTH = 104;
+//*/	
+	L2_Cache	L2_DUT
+	(
+	.dirty_addr({dl1_dirty_addr, {(BYTE_OFFSET+WORD_OFFSET){1'b0}}}),
+	.alu_out(alu_mem),
+	.pc(pc_fetch),		
+	.*
+	);
+	
+	Memory 		MEM_DUT
+	(
+	.*
+	);
+	
+endmodule	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

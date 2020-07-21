@@ -1,0 +1,169 @@
+//////////////////////////////////////////////////////////////////////////////////
+// File Name: 		L1_data_cache.sv
+// Module Name:		Level 1 Data Cache	
+// Project Name:	RVS192
+// Author:	 		hungbk99
+// University:     	DP S192	HCMUT
+//////////////////////////////////////////////////////////////////////////////////
+
+`include"RVS192_user_define.h"
+import 	RVS192_package::*;
+import	RVS192_user_parameters::*;
+module	DL1_Cache
+(
+	output	logic						ICC_halt,
+	output 	logic 	[DATA_LENGTH-1:0]	data_read,
+	output 	logic 						write_req,
+	output 	logic 						read_req,	
+	output 	cache_update_type 			DL2_in,
+	input 	logic 						write_res,
+	input 	logic 						read_res,
+	input 	cache_update_type 			DL2_out,
+	input 	[DATA_LENGTH-1:0]			data_write,
+	input	[DATA_LENGTH-1:0]			alu_out,
+	input 								clk,
+	input 								rst_n
+);
+
+//================================================================================	
+//	Internal Signals
+	parameter	TAG_LENGTH = DATA_LENGTH-BYTE_OFFSET-WORD_OFFSET-$clog2(DCACHE_LINE);
+	
+	logic	[DCACHE_WAY-1:0]					dcache_valid,
+												dcache_write,
+												dcache_way_hit,
+												replace_way,
+												write_way,
+												replace_way_new;	;
+	logic	[$clog2(DCACHE_LINE)-1:0]			DL1_index,
+												DL1_up_index,
+												DL1_write_index;
+	logic 	[TAG_LENGTH-1:0]					tag,
+												tag_up,
+												TAG_dcache	[DCACHE_WAY]; 
+	logic 	[CACHE_BLOCK_SIZE*8-1:0]			DCRAM_out [DCACHE_WAY],
+												DCRAM_in_replace [DCACHE_WAY]
+												DCRAM_in_write [DCACHE_WAY];	
+	logic 	[CACHE_BLOCK_SIZE*4-1:0]			DCRAM_out1 [DCACHE_WAY],
+												DCRAM_out2 [DCACHE_WAY],	
+												DCRAM_in1 [DCACHE_WAY],
+												DCRAM_in2 [DCACHE_WAY],	
+	logic										dcache_hit;
+	logic 	[INST_LENGTH-1:0]					DL1_data,
+												DL1_data_way[ICACHE_WAY];											
+//================================================================================
+//================================================================================
+//	L1 Data Cache
+	genvar	way;
+
+	assign	DL1_index = pc[BYTE_OFFSET+WORD_OFFSET+$clog2(DCACHE_LINE)-1:BYTE_OFFSET+WORD_OFFSET];
+	assign 	DL1_up_index = pc_up[BYTE_OFFSET+WORD_OFFSET+$clog2(DCACHE_LINE)-1:BYTE_OFFSET+WORD_OFFSET];
+	assign 	tag_alu = pc[INST_LENGTH-1:BYTE_OFFSET+WORD_OFFSET+$clog2(DCACHE_LINE)];
+	assign 	tag_alu_up = pc_up[INST_LENGTH-1:BYTE_OFFSET+WORD_OFFSET+$clog2(DCACHE_LINE)];
+	assign 	word_sel = pc[BYTE_OFFSET+WORD_OFFSET-1:BYTE_OFFSET];
+	
+	generate			 	
+	for(way = 0; way < DCACHE_WAY; way++) 
+		begin:	way_gen	
+		
+		Valid_Set
+		#(
+		.VALID_LINE(DCACHE_LINE),
+		.SET_KIND ("NORMAL")
+		)
+		DCACHE_VALID
+		(
+		.valid(dcache_valid[way]),	
+		.index(DL1_index),
+		.replace_index(DL1_up_index),	
+		.replace(replace_way[way]),
+		.write(),		
+		.clk(clk),
+		.rst_n(rst_n)
+		);		
+
+		Dirty_Set
+		#(
+		.VALID_LINE(DCACHE_LINE),
+		.SET_KIND ("DIRTY")
+		)
+		DCACHE_DIRTY
+		(
+		.valid(dcache_valid[way]),	
+		.index(DL1_index),
+		.replace_index(DL1_up_index),	
+		.replace(replace_way[way]),
+		.write(dcache_write[way]),		
+		.clk(clk),
+		.rst_n(rst_n)
+		);
+		
+		DualPort_SRAM
+		#(
+		.SRAM_LENGTH(CACHE_BLOCK_SIZE*8), 
+		.SRAM_DEPTH(DCACHE_LINE)
+		)
+		DCRAM
+		(
+		.data_out1(DCRAM_out[way]), 
+		.data_out2(),	
+		.data_in1(DCRAM_in_replace[way]),
+		.data_in2(DCRAM_in_write[way]),	
+		.addr1(DL1_up_index),
+		.addr2(DL1_write_index),
+		.wen1(replace_way[way]), 
+		.wen2(write_way[way]), 
+		.clk(clk)
+		);
+
+		assign	{DCRAM_out2[way], DCRAM_out1[way]} = DCRAM_out[way];
+
+		Configurable_Mux_Write	mux_write
+		(
+		.data_out(DCRAM_in_write[way]),
+		.data_in(data_write),
+		.data_fb(DCRAM_out[way]),
+		.sample_req(word_sel)
+		);	defparam	mux_write1.SLOT = CACHE_BLOCK_SIZE/4;
+				
+		Configurable_Mux_Write	mux_replace1
+		(
+		.data_out(DCRAM_in1[way]),
+		.data_in(DL2_out.w1_update),
+		.data_fb(DCRAM_out1[way]),
+		.sample_req(DL2_out.addr1_update)
+		);	defparam	mux_write1.SLOT = CACHE_BLOCK_SIZE/8;
+		
+		Configurable_Mux_Write	mux_replace2
+		(
+		.data_out(DCRAM_in2[way]),
+		.data_in(DL2_out.w2_update),
+		.data_fb(DCRAM_out2[way]),
+		.sample_req(DL2_out.addr2_update)
+		);	defparam	mux_write2.SLOT = CACHE_BLOCK_SIZE/8;
+		
+		assign	DCRAM_in_replace[way] = {DCRAM_in2[way], DCRAM_in1[way]};
+
+		Configurable_Multiplexer	mux_read_way
+		(
+		.data_out(DL1_data_way[way]),
+		.data_in(DCRAM_out[way]),
+		.sel(word_sel)
+		);	defparam	mux_read_way.INPUT_SLOT = CACHE_BLOCK_SIZE/4;
+		
+		SinglePort_SRAM	DTAG
+		(
+		.data_out(TAG_dcache[way]),
+		.data_in(tag_up),
+		.w_addr(DL1_up_index),
+		.r_addr(DL1_index),
+		.wen(replace_way[way]),
+		.clk(clk)
+		);	defparam	DTAG.SRAM_LENGTH = TAG_LENGTH;
+			defparam	DTAG.SRAM_DEPTH = DCACHE_LINE;
+		
+		assign	dcache_way_hit[way] = (TAG_dcache[way] == tag) && dcache_valid[way];	
+		end		
+		
+	endgenerate
+	

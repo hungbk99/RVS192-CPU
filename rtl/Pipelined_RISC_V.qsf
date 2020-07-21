@@ -1,0 +1,94 @@
+# -------------------------------------------------------------------------- #
+#
+# Copyright (C) 2018  Intel Corporation. All rights reserved.
+# Your use of Intel Corporation's design tools, logic functions 
+# and other software and tools, and its AMPP partner logic 
+# functions, and any output files from any of the foregoing 
+# (including device programming or simulation files), and any 
+# associated documentation or information are expressly subject 
+# to the terms and conditions of the Intel Program License 
+# Subscription Agreement, the Intel Quartus Prime License Agreement,
+# the Intel FPGA IP License Agreement, or other applicable license
+# agreement, including, without limitation, that your use is for
+# the sole purpose of programming logic devices manufactured by
+# Intel and sold by Intel or its authorized distributors.  Please
+# refer to the applicable agreement for further details.
+#
+# -------------------------------------------------------------------------- #
+#
+# Quartus Prime
+# Version 18.1.0 Build 625 09/12/2018 SJ Lite Edition
+# Date created = 20:54:19  July 16, 2020
+#
+# -------------------------------------------------------------------------- #
+#
+# Notes:
+#
+# 1) The default values for assignments are stored in the file:
+#		Pipelined_RISC_V_assignment_defaults.qdf
+#    If this file doesn't exist, see file:
+#		assignment_defaults.qdf
+#
+# 2) Altera recommends that you do not modify this file. This
+#    file is updated automatically by the Quartus Prime software
+#    and any changes you make may be lost or overwritten.
+#
+# -------------------------------------------------------------------------- #
+
+
+set_global_assignment -name FAMILY "Cyclone V"
+set_global_assignment -name DEVICE 5CSXFC2C6U23C6
+set_global_assignment -name TOP_LEVEL_ENTITY Pipelined_RISC_V
+set_global_assignment -name ORIGINAL_QUARTUS_VERSION 18.1.0
+set_global_assignment -name PROJECT_CREATION_TIME_DATE "20:54:19  JULY 16, 2020"
+set_global_assignment -name LAST_QUARTUS_VERSION "18.1.0 Lite Edition"
+set_global_assignment -name SYSTEMVERILOG_FILE Write_Buffer_L2.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Write_Buffer.sv
+set_global_assignment -name SYSTEMVERILOG_FILE RVS192_user_parameters.sv
+set_global_assignment -name SOURCE_FILE RVS192_user_define.h
+set_global_assignment -name SYSTEMVERILOG_FILE RVS192_package.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Register_File.sv
+set_global_assignment -name SYSTEMVERILOG_FILE RANDOM.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Pipelined_RISC_V.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Pipeline_Register2.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Pipeline_Register1.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Pipeline_Register0.sv
+set_global_assignment -name SYSTEMVERILOG_FILE PC.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Next_PC_Logic.sv
+set_global_assignment -name SYSTEMVERILOG_FILE mux_8_1.sv
+set_global_assignment -name SYSTEMVERILOG_FILE mux_4_1.sv
+set_global_assignment -name SYSTEMVERILOG_FILE mux_3_1.sv
+set_global_assignment -name SYSTEMVERILOG_FILE mux_2_1_CT.sv
+set_global_assignment -name SYSTEMVERILOG_FILE mux_2_1.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Memory.sv
+set_global_assignment -name SYSTEMVERILOG_FILE L2C_Controller.sv
+set_global_assignment -name SYSTEMVERILOG_FILE L2_Cache.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ImmGen.sv
+set_global_assignment -name SYSTEMVERILOG_FILE IMEM.sv
+set_global_assignment -name SYSTEMVERILOG_FILE IL1_Controller.sv
+set_global_assignment -name SYSTEMVERILOG_FILE IL1_Cache.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Forwarding_Unit.sv
+set_global_assignment -name SYSTEMVERILOG_FILE DualPort_SRAM.sv
+set_global_assignment -name SYSTEMVERILOG_FILE DMEM.sv
+set_global_assignment -name SYSTEMVERILOG_FILE DL1_Controller.sv
+set_global_assignment -name SYSTEMVERILOG_FILE DL1_Cache.sv
+set_global_assignment -name SYSTEMVERILOG_FILE DataGen.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Controller.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Configurable_Mux_Write.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Configurable_Multiplexer.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Check_Set_L2.sv
+set_global_assignment -name SYSTEMVERILOG_FILE BTB.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Branch_Compare.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Branch_Check.sv
+set_global_assignment -name SYSTEMVERILOG_FILE BHT.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ALU.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ALRU.sv
+set_global_assignment -name SYSTEMVERILOG_FILE Add4.sv
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+set_global_assignment -name MIN_CORE_JUNCTION_TEMP 0
+set_global_assignment -name MAX_CORE_JUNCTION_TEMP 85
+set_global_assignment -name ERROR_CHECK_FREQUENCY_DIVISOR 256
+set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
+set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
+set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
+set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
