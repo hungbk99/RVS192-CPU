@@ -14,4 +14,4 @@ A 32-bit RISC-V CPU using SystemVerilog
 * Access RVS192_user_parameters.sv to config capacity of
 Cache and Branch Predictor
 * Access RVS192_user_define.h to config Branch Predictor's type,
-enable SIMULATE macro for SIMULATION, disable SIMULATE for SYSTHESIS
+enable SIMULATE macro for SIMULATION, disable SIMULATE for SYNTHESIS
