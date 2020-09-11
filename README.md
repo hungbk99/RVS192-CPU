@@ -1,5 +1,5 @@
 # RVS192-CPU
-A 32-bit RISC-V CPU using SystemVerilog
+A 32-bit RISC-V CPU using SystemVerilog from my Design Project in HCMUT
 # Features:
 * 5-Stage Pipeline RISC-V
 * 2 Level Cache (Configurable):
