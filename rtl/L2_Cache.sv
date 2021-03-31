@@ -842,7 +842,7 @@ module	cc_update_handshake
 				addr_update_raw <=  addr_update_raw;
 		end
 		
-		assign 	addr_update = (tag == check_addr[ADDR_LENGTH-1:2+$clog2(SLOT)]) ? check_addr[$clog2(SLOT)+2:2] : addr_update_raw;
+		assign 	addr_update = (tag == check_addr[ADDR_LENGTH-1:2+$clog2(SLOT)]) ? check_addr[$clog2(SLOT)+2:2] : addr_update_raw; //check_addr is signal sent from cpu (pc-instruction address, alu_out-data address) -> if the next address after the preceding miss belong to the current missing block too -> fetch this address first -> if not -> continue with the following address in that block
 	end
 	endgenerate
 	
